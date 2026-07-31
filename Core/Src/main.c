@@ -54,7 +54,7 @@ static void MX_GPIO_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-static uint32_t blink_ms = 500;
+static uint32_t blink_ms = 2000;
 /* USER CODE END 0 */
 
 /**

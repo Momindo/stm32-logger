@@ -1,9 +1,8 @@
 /* USER CODE BEGIN Header */
 /**
   ******************************************************************************
-  * @file         stm32f4xx_hal_msp.c
-  * @brief        This file provides code for the MSP Initialization
-  *               and de-Initialization codes.
+  * File Name          : freertos.c
+  * Description        : Code for freertos applications
   ******************************************************************************
   * @attention
   *
@@ -19,66 +18,54 @@
 /* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
+#include "FreeRTOS.h"
+#include "task.h"
 #include "main.h"
+
+/* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN TD */
+/* USER CODE BEGIN PTD */
 
-/* USER CODE END TD */
+/* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN Define */
+/* USER CODE BEGIN PD */
 
-/* USER CODE END Define */
+/* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN Macro */
+/* USER CODE BEGIN PM */
 
-/* USER CODE END Macro */
+/* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-/* USER CODE BEGIN PV */
+/* USER CODE BEGIN Variables */
 
-/* USER CODE END PV */
+/* USER CODE END Variables */
 
 /* Private function prototypes -----------------------------------------------*/
-/* USER CODE BEGIN PFP */
+/* USER CODE BEGIN FunctionPrototypes */
 
-/* USER CODE END PFP */
+/* USER CODE END FunctionPrototypes */
 
-/* External functions --------------------------------------------------------*/
-/* USER CODE BEGIN ExternalFunctions */
+/* Hook prototypes */
+void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName);
 
-/* USER CODE END ExternalFunctions */
-
-/* USER CODE BEGIN 0 */
-
-/* USER CODE END 0 */
-/**
-  * Initializes the Global MSP.
-  */
-void HAL_MspInit(void)
+/* USER CODE BEGIN 4 */
+void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName)
 {
-
-  /* USER CODE BEGIN MspInit 0 */
-
-  /* USER CODE END MspInit 0 */
-
-  __HAL_RCC_SYSCFG_CLK_ENABLE();
-  __HAL_RCC_PWR_CLK_ENABLE();
-
-  /* System interrupt init*/
-  /* PendSV_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(PendSV_IRQn, 15, 0);
-
-  /* USER CODE BEGIN MspInit 1 */
-
-  /* USER CODE END MspInit 1 */
+   /* Run time stack overflow checking is performed if
+   configCHECK_FOR_STACK_OVERFLOW is defined to 1 or 2. This hook function is
+   called if a stack overflow is detected. */
 }
+/* USER CODE END 4 */
 
-/* USER CODE BEGIN 1 */
+/* Private application code --------------------------------------------------*/
+/* USER CODE BEGIN Application */
 
-/* USER CODE END 1 */
+/* USER CODE END Application */
+

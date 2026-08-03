@@ -30,6 +30,8 @@
 
 #include <string.h>
 
+#include "FreeRTOS.h"
+#include "task.h"
 
 /* USER CODE END Includes */
 
@@ -81,6 +83,13 @@ const osThreadAttr_t loggerTask_attributes = {
   .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
+/* Definitions for sysTask */
+osThreadId_t sysTaskHandle;
+const osThreadAttr_t sysTask_attributes = {
+  .name = "sysTask",
+  .stack_size = 192 * 4,
+  .priority = (osPriority_t) osPriorityBelowNormal,
+};
 /* USER CODE BEGIN PV */
 static uint32_t dropped[SRC_COUNT] = { 0 };
 
@@ -104,6 +113,7 @@ void StartDefaultTask(void *argument);
 void StartHeartbeatTask(void *argument);
 void StartGyroTask(void *argument);
 void StartLoggerTask(void *argument);
+void StartSysTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -146,7 +156,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_SPI5_Init();
   /* USER CODE BEGIN 2 */
-  const char *banner = "\r\n=== boot 9 ===\r\n";
+  const char *banner = "\r\n=== boot 10 ===\r\n";
     HAL_UART_Transmit(&huart1, (uint8_t *)banner, strlen(banner), 100);
   /* USER CODE END 2 */
 
@@ -188,6 +198,9 @@ int main(void)
 
   /* creation of loggerTask */
   loggerTaskHandle = osThreadNew(StartLoggerTask, NULL, &loggerTask_attributes);
+
+  /* creation of sysTask */
+  sysTaskHandle = osThreadNew(StartSysTask, NULL, &sysTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -651,14 +664,14 @@ void StartHeartbeatTask(void *argument)
     osDelayUntil(wake);
 
     int len = snprintf(msg, sizeof(msg),
-                       "# up=%lus q=%lu drop=%lu | gyro L=%lu s=%lu | log L=%lu s=%lu\r\n",
-                       (unsigned long)(osKernelGetTickCount() / 1000),
-                       (unsigned long)osMessageQueueGetSpace(sampleQueueHandle),
-                       (unsigned long)dropped[SRC_GYRO],
-                       (unsigned long)gyro_loops,
-                       (unsigned long)osThreadGetStackSpace(gyroTaskHandle),
-                       (unsigned long)logger_loops,
-                       (unsigned long)osThreadGetStackSpace(loggerTaskHandle));
+                           "# up=%lus q=%lu dropG=%lu dropS=%lu | gyro L=%lu | log L=%lu\r\n",
+                           (unsigned long)(osKernelGetTickCount() / 1000),
+                           (unsigned long)osMessageQueueGetSpace(sampleQueueHandle),
+                           (unsigned long)dropped[SRC_GYRO],
+                           (unsigned long)dropped[SRC_SYSTEM],
+                           (unsigned long)gyro_loops,
+                           (unsigned long)logger_loops);
+
 
     HAL_UART_Transmit(&huart1, (uint8_t *)msg, len, 100);
   }
@@ -765,6 +778,39 @@ void StartLoggerTask(void *argument)
 
   }
   /* USER CODE END StartLoggerTask */
+}
+
+/* USER CODE BEGIN Header_StartSysTask */
+/**
+* @brief Function implementing the sysTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartSysTask */
+void StartSysTask(void *argument)
+{
+  /* USER CODE BEGIN StartSysTask */
+  uint32_t wake = osKernelGetTickCount();
+  uint32_t seq  = 0;
+
+  for(;;)
+  {
+    wake += 1000;
+    osDelayUntil(wake);
+
+    sample_t s;
+    s.timestamp_ms          = osKernelGetTickCount();
+    s.seq                   = seq++;
+    s.src                   = SRC_SYSTEM;
+    s.data.sys.uptime_s     = osKernelGetTickCount() / 1000;
+    s.data.sys.free_heap_kb = (uint16_t)(xPortGetFreeHeapSize() / 1024);
+
+    if (osMessageQueuePut(sampleQueueHandle, &s, 0, 0) != osOK)
+    {
+      dropped[SRC_SYSTEM]++;
+    }
+  }
+  /* USER CODE END StartSysTask */
 }
 
 /**

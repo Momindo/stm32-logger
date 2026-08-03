@@ -24,6 +24,13 @@
 /* USER CODE BEGIN Includes */
 #include "stdio.h"
 #include "gyro.h"
+
+#include "gyro.h"
+#include "sample.h"
+
+#include <string.h>
+
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -60,7 +67,31 @@ const osThreadAttr_t HeartbeatTask_attributes = {
   .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityNormal1,
 };
+/* Definitions for gyroTask */
+osThreadId_t gyroTaskHandle;
+const osThreadAttr_t gyroTask_attributes = {
+  .name = "gyroTask",
+  .stack_size = 256 * 4,
+  .priority = (osPriority_t) osPriorityAboveNormal,
+};
+/* Definitions for loggerTask */
+osThreadId_t loggerTaskHandle;
+const osThreadAttr_t loggerTask_attributes = {
+  .name = "loggerTask",
+  .stack_size = 512 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
 /* USER CODE BEGIN PV */
+static uint32_t dropped[SRC_COUNT] = { 0 };
+
+static volatile uint32_t gyro_loops   = 0;
+static volatile uint32_t logger_loops = 0;
+
+//our own q
+
+
+
+osMessageQueueId_t sampleQueueHandle;
 
 /* USER CODE END PV */
 
@@ -71,6 +102,8 @@ static void MX_USART1_UART_Init(void);
 static void MX_SPI5_Init(void);
 void StartDefaultTask(void *argument);
 void StartHeartbeatTask(void *argument);
+void StartGyroTask(void *argument);
+void StartLoggerTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -113,7 +146,8 @@ int main(void)
   MX_USART1_UART_Init();
   MX_SPI5_Init();
   /* USER CODE BEGIN 2 */
-
+  const char *banner = "\r\n=== boot 9 ===\r\n";
+    HAL_UART_Transmit(&huart1, (uint8_t *)banner, strlen(banner), 100);
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -133,6 +167,13 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+    sampleQueueHandle = osMessageQueueNew(32, sizeof(sample_t), NULL);
+    if (sampleQueueHandle == NULL)
+    {
+      Error_Handler();
+    }
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -141,6 +182,12 @@ int main(void)
 
   /* creation of HeartbeatTask */
   HeartbeatTaskHandle = osThreadNew(StartHeartbeatTask, NULL, &HeartbeatTask_attributes);
+
+  /* creation of gyroTask */
+  gyroTaskHandle = osThreadNew(StartGyroTask, NULL, &gyroTask_attributes);
+
+  /* creation of loggerTask */
+  loggerTaskHandle = osThreadNew(StartLoggerTask, NULL, &loggerTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -595,51 +642,129 @@ void StartDefaultTask(void *argument)
 void StartHeartbeatTask(void *argument)
 {
   /* USER CODE BEGIN StartHeartbeatTask */
-	char msg[64];
-	  uint32_t seq = 0;
-	  uint32_t wake = osKernelGetTickCount();
+  char msg[128];
+  uint32_t wake = osKernelGetTickCount();
 
-	  //added from gyro
-	  uint8_t id = gyro_read_reg(GYRO_WHO_AM_I);
-	    int n = snprintf(msg, sizeof(msg), "WHO_AM_I = 0x%02X\r\n", id);
-	    HAL_UART_Transmit(&huart1, (uint8_t *)msg, n, 100);
+  for(;;)
+  {
+    wake += 1000;
+    osDelayUntil(wake);
 
-	    bool ok = gyro_init();
+    int len = snprintf(msg, sizeof(msg),
+                       "# up=%lus q=%lu drop=%lu | gyro L=%lu s=%lu | log L=%lu s=%lu\r\n",
+                       (unsigned long)(osKernelGetTickCount() / 1000),
+                       (unsigned long)osMessageQueueGetSpace(sampleQueueHandle),
+                       (unsigned long)dropped[SRC_GYRO],
+                       (unsigned long)gyro_loops,
+                       (unsigned long)osThreadGetStackSpace(gyroTaskHandle),
+                       (unsigned long)logger_loops,
+                       (unsigned long)osThreadGetStackSpace(loggerTaskHandle));
 
-	    if (ok) gyro_calibrate(200);
-
-	    if (ok)
-	        {
-	          float gx, gy, gz;
-	          gyro_read_dps(&gx, &gy, &gz);
-	          int m = snprintf(msg, sizeof(msg), "  gyro  x=%7.2f  y=%7.2f  z=%7.2f  dps\r\n",
-	                           gx, gy, gz);
-	          HAL_UART_Transmit(&huart1, (uint8_t *)msg, m, 100);
-	        }
-
-	  for(;;)
-	  {
-	    wake += 1000;
-	    osDelayUntil(wake);
-
-	    seq++;
-	    int len = snprintf(msg, sizeof(msg), "uptime=%lus  seq=%lu\r\n",
-	                       (unsigned long)(osKernelGetTickCount() / 1000),
-	                       (unsigned long)seq);
-	    HAL_UART_Transmit(&huart1, (uint8_t *)msg, len, 100);
-
-	    if (ok)
-	        {
-	          gyro_raw_t g;
-	          gyro_read_raw(&g);
-	          int m = snprintf(msg, sizeof(msg), "  gyro  x=%6d  y=%6d  z=%6d\r\n",
-	                           g.x, g.y, g.z);
-	          HAL_UART_Transmit(&huart1, (uint8_t *)msg, m, 100);
-	        }
-
-
-	  }
+    HAL_UART_Transmit(&huart1, (uint8_t *)msg, len, 100);
+  }
   /* USER CODE END StartHeartbeatTask */
+}
+
+/* USER CODE BEGIN Header_StartGyroTask */
+/**
+* @brief Function implementing the gyroTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartGyroTask */
+void StartGyroTask(void *argument)
+{
+  /* USER CODE BEGIN StartGyroTask */
+  uint32_t wake;
+  uint32_t seq = 0;
+
+  if (!gyro_init())
+  {
+    for(;;) { osDelay(1000); }
+  }
+
+  gyro_calibrate(200);
+  wake = osKernelGetTickCount();
+
+  for(;;)
+  {
+    wake += 20;
+    osDelayUntil(wake);
+
+    gyro_loops++;
+
+    gyro_raw_t raw;
+    gyro_read_raw(&raw);
+
+    sample_t s;
+    s.timestamp_ms = osKernelGetTickCount();
+    s.seq          = seq++;
+    s.src          = SRC_GYRO;
+    s.data.gyro.x  = raw.x;
+    s.data.gyro.y  = raw.y;
+    s.data.gyro.z  = raw.z;
+
+    if (osMessageQueuePut(sampleQueueHandle, &s, 0, 0) != osOK)
+    {
+      dropped[SRC_GYRO]++;
+    }
+  }
+  /* USER CODE END StartGyroTask */
+}
+
+/* USER CODE BEGIN Header_StartLoggerTask */
+/**
+* @brief Function implementing the loggerTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartLoggerTask */
+void StartLoggerTask(void *argument)
+{
+  /* USER CODE BEGIN StartLoggerTask */
+  char msg[96];
+  sample_t s;
+
+  for(;;)
+  {
+    logger_loops++;
+
+    if (osMessageQueueGet(sampleQueueHandle, &s, NULL, osWaitForever) != osOK)
+    {
+      continue;
+    }
+
+    int n = 0;
+
+    switch (s.src)
+    {
+      case SRC_GYRO:
+        n = snprintf(msg, sizeof(msg), "%lu,gyro,%lu,%d,%d,%d\r\n",
+                     (unsigned long)s.timestamp_ms,
+                     (unsigned long)s.seq,
+                     s.data.gyro.x, s.data.gyro.y, s.data.gyro.z);
+        break;
+
+      case SRC_SYSTEM:
+        n = snprintf(msg, sizeof(msg), "%lu,sys,%lu,%lu,%u\r\n",
+                     (unsigned long)s.timestamp_ms,
+                     (unsigned long)s.seq,
+                     (unsigned long)s.data.sys.uptime_s,
+                     s.data.sys.free_heap_kb);
+        break;
+
+      default:
+        break;
+    }
+
+    if (n > 0)
+    {
+      HAL_UART_Transmit(&huart1, (uint8_t *)msg, n, 100);
+    }
+
+
+  }
+  /* USER CODE END StartLoggerTask */
 }
 
 /**

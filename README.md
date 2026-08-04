@@ -81,10 +81,15 @@ transfers.
 
 ## Known issues and board quirks
 
-**HSE does not lock on this board.** HSERDY never sets in either crystal
-or bypass mode. Running on HSI instead: PLL M=16 N=336 P=2 Q=7, giving
-168 MHz SYSCLK and a 48 MHz USB clock. HSI is +/-1% accurate, which is
-out of spec for USB — must be resolved before the USB CDC phase.
+**HSE does not lock on this board.** The X3 8 MHz crystal position is not
+populated (see MB1075 schematic), so HSE depends entirely on the ST-LINK
+MCO output reaching PH0 through a solder bridge. If that bridge is open,
+no clock is present and neither crystal nor bypass mode will lock.
+ST-LINK firmware upgrade did not help.
+
+Running on HSI: PLL M=16 N=336 P=2 Q=7 -> 168 MHz SYSCLK, 48 MHz USB clock.
+HSI is +/-1%, out of spec for USB. USB CDC (phase 4) is deferred until the
+bridge is investigated.
 
 **SPI5 pins need VERY_HIGH output speed.** CubeMX's board-selector default
 of `GPIO_SPEED_FREQ_LOW` limits slew rate to roughly 2 MHz. At the 5.25 MHz
